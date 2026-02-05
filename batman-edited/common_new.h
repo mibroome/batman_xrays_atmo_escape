@@ -39,11 +39,54 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "tau.h"
+
+// Global tau array and its length
+double *tau = NULL;
+int tau_len = 0;
+
+// Function to read tau values from file (variable length)
+static inline int read_tau_from_file(const char *filename) {
+	FILE *file = fopen(filename, "r");
+	if (!file) return -1;
+
+	// First, count the number of values
+	int count = 0;
+	double temp;
+	while (fscanf(file, "%lf", &temp) == 1) {
+		count++;
+	}
+	rewind(file);
+
+	// Allocate tau array
+	tau = (double *)malloc(count * sizeof(double));
+	if (!tau) {
+		fclose(file);
+		return -3; // Memory allocation failed
+	}
+	tau_len = count;
+
+	// Read values into tau
+	for (int i = 0; i < count; i++) {
+		if (fscanf(file, "%lf", &tau[i]) != 1) {
+			free(tau);
+			tau = NULL;
+			tau_len = 0;
+			fclose(file);
+			return -2; // Not enough values
+		}
+	}
+	fclose(file);
+	return 0;
+}
 
 /* Must be defined in the C file that includes this header. */
 inline double intensity(double x, double intVal[10001]);
 
+// static inline double tau(double ir) {
+// 	double tau0 = 1; // central optical depth
+// 	return tau0/(pow(ir,2)+1);
+// 	// return tau0 * exp(-r / r0);
+// }
 
 double overlapping_area(double d, double x, double r)
 {
@@ -60,25 +103,30 @@ double overlapping_area(double d, double x, double r)
 
 double area(double d, double x, double R)
 {
-	/* Returns area of overlapping circles with radii x (star) and R (planet); separated by a distance d;
-	tau.h is an array of slant-path optical depths between 0 and R */
+	/* Returns area of overlapping circles with radii x and R; separated by a distance d */
 
-	int Nsteps = sizeof(tau) / sizeof(tau[0]); // radial steps
+	// double arg1 = (d*d + x*x - R*R)/(2.*d*x);
+	// double arg2 = (d*d + R*R - x*x)/(2.*d*R);
+	// double arg3 = MAX((-d + x + R)*(d + x - R)*(d - x + R)*(d + x + R), 0.);
+
+	int Nsteps = tau_len > 0 ? tau_len : 100; // radial steps
 	double dr = R / Nsteps;
  
-	if(x <= R - d) return M_PI*x*x;						//stellar circle completely overlaps planet
-	else if(x >= R + d){								//planet completely within stellar disk	
+	if(x <= R - d) return M_PI*x*x;						//planet completely overlaps stellar circle
+	// else if(x >= R + d) return M_PI*R*R;						//stellar circle completely overlaps planet
+	else if(x >= R + d){
 		double blocked_flux = 0.0;
 		for (int ir = 0; ir < Nsteps; ++ir) {
 			double r_n = dr * (ir + 0.5);
-			double transmission = 1.0 - exp(-tau[ir]);
+			double transmission = 1.0;
+			if (tau && ir < tau_len) transmission = 1.0 - exp(-tau[ir]);
 			if (transmission < 0) transmission = 0.0;
 			if (transmission > 1.0) transmission = 1.0;
 			blocked_flux += transmission * 2.0 * M_PI * r_n * dr;
 		}
 		return blocked_flux;
 	}
-	else{ 										       //partial overlap	
+	else{
 		double blocked_flux = 0.0;
 
 		for (int ir = 0; ir < Nsteps; ++ir) {
@@ -88,21 +136,49 @@ double area(double d, double x, double R)
 			double A1 = overlapping_area(d, x, r1);
 			double A2 = overlapping_area(d, x, r2);
 
-			double transmission = 1.0 - exp(-tau[ir]);
+			double transmission = 1.0;
+			if (tau && ir < tau_len) transmission = 1.0 - exp(-tau[ir]);
 			if (transmission < 0) transmission = 0.0;
 			if (transmission > 1.0) transmission = 1.0;
-			// FILE *fp = fopen("transmissions_new.txt", "a");
-			// if (fp != NULL) {
-			// 	fprintf(fp, "%d,%f,%e,%e\n", ir, r1, tau[ir], transmission);
-			// 	fclose(fp);
-			// }	
 
 			blocked_flux += transmission * (A2 - A1);
 		}
 		return blocked_flux;
 	}
-
+	
+	if (tau) {
+    free(tau);
+    tau = NULL;
+    tau_len = 0;
+	}
 }
+	// else return (x*x*acos(arg1) + R*R*acos(arg2) - 0.5*sqrt(arg3));			//partial overlap
+
+
+	// else if(x >= R + d) return M_PI*R*R;						//stellar circle completely overlaps planet
+	// // else return x*x*acos(arg1) + R*R*acos(arg2) - 0.5*sqrt(arg3);			//partial overlap
+	// else { 										//partial overlap
+	// 	double blocked_flux = 0.0;
+	// 	for (int ir = 0; ir < Nsteps; ++ir) {
+	// 		double r_n = dr * (ir + 0.5);
+	// 		double transmission = 1.0;// - exp(-tau(ir));
+	// 		if (abs(d+x)>r_n){
+	// 			double arg = (d*d + r_n*r_n - x*x)/(2.*d*r_n); //law of cosines
+	// 			FILE *fp = fopen("test_new", "a");
+	// 			if (fp != NULL) {
+	// 				fprintf(fp, "%f,%f,%f,%f,%f, %f\n", x, d, R, r_n, arg, transmission);
+	// 				fclose(fp);
+	// 			}	
+	// 			double theta_n = acos(arg);
+	// 			double arc = r_n * 2.0 * theta_n; //2pi cancels out
+	// 			blocked_flux += transmission * arc * dr;
+	// 		}
+	// 		else{
+	// 			blocked_flux += transmission * 2.0 * M_PI * r_n * dr;
+	// 		}
+	// 	}
+	// 	return blocked_flux;
+	// }
 
 
 void calc_limb_darkening(double* f_array, double* d_array, int N, double rprs, double fac, int nthreads, double* intVals[10001])

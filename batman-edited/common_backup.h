@@ -37,73 +37,22 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #include "numpy/arrayobject.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include "tau.h"
-
 /* Must be defined in the C file that includes this header. */
 inline double intensity(double x, double intVal[10001]);
 
-
-double overlapping_area(double d, double x, double r)
+inline double area(double d, double x, double R)
 {
-    if (d >= x + r) return 0.0;
-    if (d <= fabs(x - r)) return M_PI * fmin(x, r) * fmin(x, r);
+	/*
+	Returns area of overlapping circles with radii x and R; separated by a distance d
+	*/
+	double arg1 = (d*d + x*x - R*R)/(2.*d*x);
+	double arg2 = (d*d + R*R - x*x)/(2.*d*R);
+	double arg3 = MAX((-d + x + R)*(d + x - R)*(d - x + R)*(d + x + R), 0.);
 
-    double arg1 = (d*d + x*x - r*r)/(2.0*d*x);
-    double arg2 = (d*d + r*r - x*x)/(2.0*d*r);
-    double arg3 = (-d + x + r)*(d + x - r)*(d - x + r)*(d + x + r);
-
-    return x*x*acos(arg1) + r*r*acos(arg2) - 0.5*sqrt(arg3);
+	if(x <= R - d) return M_PI*x*x;							//planet completely overlaps stellar circle
+	else if(x >= R + d) return 10*M_PI*R*R;						//stellar circle completely overlaps planet
+	else return x*x*acos(arg1) + R*R*acos(arg2) - 0.5*sqrt(arg3);			//partial overlap
 }
-
-
-double area(double d, double x, double R)
-{
-	/* Returns area of overlapping circles with radii x (star) and R (planet); separated by a distance d;
-	tau.h is an array of slant-path optical depths between 0 and R */
-
-	int Nsteps = sizeof(tau) / sizeof(tau[0]); // radial steps
-	double dr = R / Nsteps;
- 
-	if(x <= R - d) return M_PI*x*x;						//stellar circle completely overlaps planet
-	else if(x >= R + d){								//planet completely within stellar disk	
-		double blocked_flux = 0.0;
-		for (int ir = 0; ir < Nsteps; ++ir) {
-			double r_n = dr * (ir + 0.5);
-			double transmission = 1.0 - exp(-tau[ir]);
-			if (transmission < 0) transmission = 0.0;
-			if (transmission > 1.0) transmission = 1.0;
-			blocked_flux += transmission * 2.0 * M_PI * r_n * dr;
-		}
-		return blocked_flux;
-	}
-	else{ 										       //partial overlap	
-		double blocked_flux = 0.0;
-
-		for (int ir = 0; ir < Nsteps; ++ir) {
-			double r1 = dr * ir;
-			double r2 = dr * (ir + 1);
-
-			double A1 = overlapping_area(d, x, r1);
-			double A2 = overlapping_area(d, x, r2);
-
-			double transmission = 1.0 - exp(-tau[ir]);
-			if (transmission < 0) transmission = 0.0;
-			if (transmission > 1.0) transmission = 1.0;
-			// FILE *fp = fopen("transmissions_new.txt", "a");
-			// if (fp != NULL) {
-			// 	fprintf(fp, "%d,%f,%e,%e\n", ir, r1, tau[ir], transmission);
-			// 	fclose(fp);
-			// }	
-
-			blocked_flux += transmission * (A2 - A1);
-		}
-		return blocked_flux;
-	}
-
-}
-
 
 void calc_limb_darkening(double* f_array, double* d_array, int N, double rprs, double fac, int nthreads, double* intVals[10001])
 {
