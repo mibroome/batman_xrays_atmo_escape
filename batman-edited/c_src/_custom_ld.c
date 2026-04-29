@@ -16,8 +16,8 @@
  *
  * Minor edits for use with limb-brighted, X-ray transits distributed under the same terms
  * Copyright (C) 2024 George King
- */  
-
+ */      
+ 
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <Python.h>
 #include "numpy/arrayobject.h"
@@ -49,23 +49,28 @@ inline double intensity(double x, double intVal[10001])
 	double interpol = (intVal[i] - intVal[i-1]) * ( x - (j-(1./10000.)) ) / (1. / 10000.);
 	return intVal[i-1] + interpol;
 }
-
+ 
 
 static PyObject *_custom_ld(PyObject *self, PyObject *args)
 { 
 	double rprs, fac, c2, c3, c4, c5, c6;
 	int nthreads;
 	npy_intp dims[1];
-	PyArrayObject *ds, *flux, *c1; 
+	PyArrayObject *ds, *flux, *c1, *tau_np, *tau2_np, *xs_np;  
 
-  	if(!PyArg_ParseTuple(args,"OdOddddddi", &ds, &rprs, &c1, &c2, &c3, &c4, &c5, &c6, &fac, &nthreads)) return NULL; //parses input arguments
+  	if(!PyArg_ParseTuple(args,"OdOddddddiOOO", &ds, &rprs, &c1, &c2, &c3, &c4, &c5, &c6, &fac, &nthreads, &tau_np, &tau2_np, &xs_np)) return NULL; //parses input arguments
 	
 	dims[0] = PyArray_DIMS(ds)[0]; 
 	flux = (PyArrayObject *) PyArray_SimpleNew(1, dims, PyArray_TYPE(ds));	//creates numpy array to store return flux values
 
 	double *f_array = PyArray_DATA(flux);
 	double *d_array = PyArray_DATA(ds);
-	double *intVals = PyArray_DATA(c1); 
+	double *intVals = PyArray_DATA(c1);
+	double *tau_arr = (double *)PyArray_DATA(tau_np);
+	int tau_Nsteps = (int)PyArray_SIZE(tau_np);
+	double *tau2_arr = (double *)PyArray_DATA(tau2_np);
+	int tau2_Nsteps = (int)PyArray_SIZE(tau2_np);
+	double *x_sign_array = (double *)PyArray_DATA(xs_np);
  
 	/* 
 		NOTE:  the safest way to access numpy arrays is to use the PyArray_GETITEM and PyArray_SETITEM functions.
@@ -80,8 +85,7 @@ static PyObject *_custom_ld(PyObject *self, PyObject *args)
 		Laura Kreidberg 07/2015
 	*/
 
-	#pragma acc data copyin(intensity_args)
-	calc_limb_darkening(f_array, d_array, dims[0], rprs, fac, nthreads, intVals);
+	calc_limb_darkening(f_array, d_array, dims[0], rprs, fac, nthreads, intVals, tau_arr, tau_Nsteps, tau2_arr, tau2_Nsteps, x_sign_array);
 	return PyArray_Return((PyArrayObject *)flux);
 } 
 
@@ -97,7 +101,7 @@ static PyMethodDef _custom_ld_methods[] = {
 		_custom_ld_doc,
 		-1, 
 		_custom_ld_methods
-	};  
+	};   
 
 	PyMODINIT_FUNC
 	PyInit__custom_ld(void) 
